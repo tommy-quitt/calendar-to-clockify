@@ -74,16 +74,43 @@ with open(error_log_path, "a") as error_log:
 
         start = event["start"]["dateTime"]
         end = event["end"]["dateTime"]
-        project_id = match_project(event, rules)
+        
+        project_name = match_project(event, rules)
+        project_id = clockify.resolve_project_name(project_name) if project_name else None
 
-        if not project_id:
-            warning = f"[WARNING] No matching rule for: '{summary}' at {start}"
+        if project_name and not project_id:
+            warning = f"[WARNING] No Clockify project found for name: '{project_name}' — will skip entry."
             print(warning)
             error_log.write(warning + "\n")
             continue
 
+
         if args.simulate:
-            print(f"[SIMULATION] Would log: {summary} from {start} to {end} -> Project: {project_id}")
+            print(f"[SIMULATION] Would log: {summary} from {start} to {end} -> Proj. ID: {project_id}, Project Name: {project_name}")
         else:
             print(f"Logging: {summary} from {start} to {end} -> Project: {project_id}")
+            # Check for overlapping time entries in Clockify
+            existing_entries = clockify.get_time_entries(start, end)
+
+            conflict_found = False
+            for entry in existing_entries:
+                entry_start = entry.get("timeInterval", {}).get("start")
+                entry_end = entry.get("timeInterval", {}).get("end")
+                entry_project_id = entry.get("projectId")
+
+                if entry_start == start and entry_end == end:
+                    if entry_project_id == project_id:
+                        print(f"Skipping duplicate entry for {summary} at {start}")
+                        conflict_found = True
+                        break
+                    else:
+                        warning = f"[WARNING] Conflicting time entry exists at {start} for a different project!"
+                        print(warning)
+                        error_log.write(warning + "\n")
+                        conflict_found = True
+                        break
+
+            if conflict_found:
+                continue
+
             clockify.create_time_entry(start, end, summary, project_id)

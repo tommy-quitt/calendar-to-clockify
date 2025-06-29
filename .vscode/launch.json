@@ -11,8 +11,8 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-        "--days-back", "2",
-        "--simulate"
+        "--days-back", "7",
+  //      "--simulate"
       ]
         }
     ]
