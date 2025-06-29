@@ -93,3 +93,12 @@ class ClockifyClient:
         response = requests.post(f"{self.base_url}/time-entries", headers=headers, json=payload)
         response.raise_for_status()
         return response.json()
+    
+    def delete_time_entry(self, entry_id):
+        headers = {"X-Api-Key": self.api_key}
+        url = f"{self.base_url}/time-entries/{entry_id}"
+        response = requests.delete(url, headers=headers)
+        if response.status_code != 204:
+            raise Exception(f"Failed to delete time entry {entry_id}: {response.status_code} {response.text}")
+
+

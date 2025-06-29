@@ -11,6 +11,7 @@ from matcher import match_project
 parser = argparse.ArgumentParser()
 parser.add_argument("--days-back", type=int, default=0, help="How many days back to look (0=today)")
 parser.add_argument("--simulate", action="store_true", help="Run in simulation mode (no Clockify writes)")
+parser.add_argument("--purge", action="store_true", help="Delete all entries for the day before logging new ones")
 args = parser.parse_args()
 
 # Load environment variables
@@ -39,6 +40,15 @@ events = calendar.get_events_in_range(start_range.isoformat(), end_range.isoform
 error_log_path = "unmatched_events.log"
 
 with open(error_log_path, "a") as error_log:
+    if args.purge:
+        print(f"[INFO] Purging all Clockify entries for {target_day.date()}")
+        entries_to_delete = clockify.get_time_entries(start_range.isoformat(), end_range.isoformat())
+        for entry in entries_to_delete:
+            entry_id = entry.get("id")
+            desc = entry.get("description", "")
+            print(f"  Deleting entry: {desc}")
+            clockify.delete_time_entry(entry_id)
+
     for event in events:
         summary = event.get("summary", "No title")
         description = event.get("description", "")
