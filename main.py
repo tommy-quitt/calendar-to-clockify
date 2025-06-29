@@ -7,6 +7,8 @@ from calendar_client import CalendarClient
 from clockify_client import ClockifyClient
 from matcher import match_project
 
+TAG_CALENDAR_BOT = "calendar-bot"
+
 def parse_args():
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", type=str, required=True, help="Start date (YYYY-MM-DD)")
@@ -14,7 +16,6 @@ def parse_args():
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--purge", action="store_true")
     return parser.parse_args()
-
 
 def load_config():
     load_dotenv()
@@ -102,7 +103,7 @@ def process_events(events, clockify, rules, args):
                         break
             if conflict_found:
                 continue
-            clockify.create_time_entry(start, end, summary, project_id)
+            clockify.create_time_entry(start, end, summary, project_id, tags=[TAG_CALENDAR_BOT])
 
 def main():
     args = parse_args()
@@ -110,7 +111,6 @@ def main():
     calendar = CalendarClient(config["GOOGLE_CREDENTIALS_FILE"], config["GOOGLE_CALENDAR_ID"])
     clockify = ClockifyClient(config["CLOCKIFY_API_KEY"], config["CLOCKIFY_WORKSPACE_ID"])
 
-    # Parse start and end dates
     try:
         start_date = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
         end_date = datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
@@ -126,7 +126,13 @@ def main():
         print("[ERROR] Date range cannot exceed 31 days.")
         return
 
-    # Iterate day by day
+    tag_map = clockify.get_tag_map()
+    calendar_bot_tag_id = next((tid for tid, name in tag_map.items() if name == TAG_CALENDAR_BOT), None)
+
+    if args.purge and calendar_bot_tag_id is None:
+        print(f"[ERROR] Tag '{TAG_CALENDAR_BOT}' not found in Clockify. Cannot safely purge.")
+        return
+
     current_day = start_date
     while current_day <= end_date:
         print(f"[INFO] Processing date: {current_day.date()}")
@@ -135,13 +141,15 @@ def main():
         events = calendar.get_events_in_range(start_range.isoformat(), end_range.isoformat())
 
         if args.purge:
-            print(f"[INFO] Purging all Clockify entries for {current_day.date()}")
+            print(f"[INFO] Purging entries tagged '{TAG_CALENDAR_BOT}' on {current_day.date()}")
             entries_to_delete = clockify.get_time_entries(start_range.isoformat(), end_range.isoformat())
             for entry in entries_to_delete:
-                entry_id = entry.get("id")
-                desc = entry.get("description", "")
-                print(f"  Deleting entry: {desc}")
-                clockify.delete_time_entry(entry_id)
+                tag_ids = entry.get("tagIds", [])
+                if calendar_bot_tag_id in tag_ids:
+                    entry_id = entry.get("id")
+                    desc = entry.get("description", "")
+                    print(f"  Deleting entry: {desc}")
+                    clockify.delete_time_entry(entry_id)
 
         process_events(events, clockify, config["rules"], args)
         current_day += timedelta(days=1)
@@ -149,3 +157,5 @@ def main():
 
 if __name__ == "__main__":
     main()
+# This script is the main entry point for the calendar to Clockify integration.
+# It handles command-line arguments, loads configuration, initializes clients, 

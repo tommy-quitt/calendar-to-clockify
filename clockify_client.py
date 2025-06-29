@@ -12,7 +12,6 @@ class ClockifyClient:
     def get_user_id(self):
         if self._user_id:
             return self._user_id
-
         headers = {"X-Api-Key": self.api_key}
         response = requests.get("https://api.clockify.me/api/v1/user", headers=headers)
         response.raise_for_status()
@@ -45,7 +44,7 @@ class ClockifyClient:
             if tag["name"] == tag_name:
                 return tag["id"]
 
-        # Create tag if not found
+        # Create the tag if it doesn't exist
         headers = {
             "X-Api-Key": self.api_key,
             "Content-Type": "application/json"
@@ -57,9 +56,16 @@ class ClockifyClient:
         self._tag_cache.append(new_tag)
         return new_tag["id"]
 
+    def get_tag_map(self):
+        headers = {"X-Api-Key": self.api_key}
+        response = requests.get(f"{self.base_url}/tags", headers=headers)
+        response.raise_for_status()
+        tags = response.json()
+        return {tag["id"]: tag["name"] for tag in tags}
+
     def get_time_entries(self, start, end):
         """
-        Retrieve existing time entries for current user between start and end (ISO strings).
+        Retrieve time entries for the current user between start and end (ISO strings).
         """
         user_id = self.get_user_id()
         headers = {"X-Api-Key": self.api_key}
@@ -72,15 +78,16 @@ class ClockifyClient:
         response.raise_for_status()
         return response.json()
 
-    def create_time_entry(self, start, end, description, project_id):
+    def create_time_entry(self, start, end, description, project_id, tags=None):
         """
-        Create a time entry in Clockify with a 'calendar-bot' tag.
+        Create a time entry in Clockify, tagged with 'calendar-bot'.
         """
         tag_id = self.ensure_tag()
         headers = {
             "X-Api-Key": self.api_key,
             "Content-Type": "application/json"
         }
+
         payload = {
             "start": start,
             "end": end,
@@ -93,12 +100,10 @@ class ClockifyClient:
         response = requests.post(f"{self.base_url}/time-entries", headers=headers, json=payload)
         response.raise_for_status()
         return response.json()
-    
+
     def delete_time_entry(self, entry_id):
         headers = {"X-Api-Key": self.api_key}
         url = f"{self.base_url}/time-entries/{entry_id}"
         response = requests.delete(url, headers=headers)
         if response.status_code != 204:
             raise Exception(f"Failed to delete time entry {entry_id}: {response.status_code} {response.text}")
-
-
