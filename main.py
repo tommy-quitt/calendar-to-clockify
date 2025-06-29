@@ -9,10 +9,12 @@ from matcher import match_project
 
 def parse_args():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--days-back", type=int, default=0)
+    parser.add_argument("--start", type=str, required=True, help="Start date (YYYY-MM-DD)")
+    parser.add_argument("--end", type=str, required=True, help="End date (YYYY-MM-DD)")
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--purge", action="store_true")
     return parser.parse_args()
+
 
 def load_config():
     load_dotenv()
@@ -107,22 +109,43 @@ def main():
     config = load_config()
     calendar = CalendarClient(config["GOOGLE_CREDENTIALS_FILE"], config["GOOGLE_CALENDAR_ID"])
     clockify = ClockifyClient(config["CLOCKIFY_API_KEY"], config["CLOCKIFY_WORKSPACE_ID"])
-    now = datetime.now(timezone.utc)
-    target_day = now - timedelta(days=args.days_back)
-    start_range = target_day.replace(hour=0, minute=0, second=0, microsecond=0)
-    end_range = target_day.replace(hour=23, minute=59, second=59, microsecond=0)
-    events = calendar.get_events_in_range(start_range.isoformat(), end_range.isoformat())
 
-    if args.purge:
-        print(f"[INFO] Purging all Clockify entries for {target_day.date()}")
-        entries_to_delete = clockify.get_time_entries(start_range.isoformat(), end_range.isoformat())
-        for entry in entries_to_delete:
-            entry_id = entry.get("id")
-            desc = entry.get("description", "")
-            print(f"  Deleting entry: {desc}")
-            clockify.delete_time_entry(entry_id)
+    # Parse start and end dates
+    try:
+        start_date = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        end_date = datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+    except ValueError:
+        print("[ERROR] Start and end dates must be in YYYY-MM-DD format.")
+        return
 
-    process_events(events, clockify, config["rules"], args)
+    if start_date > end_date:
+        print("[ERROR] Start date cannot be after end date.")
+        return
+
+    if (end_date - start_date).days > 31:
+        print("[ERROR] Date range cannot exceed 31 days.")
+        return
+
+    # Iterate day by day
+    current_day = start_date
+    while current_day <= end_date:
+        print(f"[INFO] Processing date: {current_day.date()}")
+        start_range = current_day.replace(hour=0, minute=0, second=0, microsecond=0)
+        end_range = current_day.replace(hour=23, minute=59, second=59, microsecond=0)
+        events = calendar.get_events_in_range(start_range.isoformat(), end_range.isoformat())
+
+        if args.purge:
+            print(f"[INFO] Purging all Clockify entries for {current_day.date()}")
+            entries_to_delete = clockify.get_time_entries(start_range.isoformat(), end_range.isoformat())
+            for entry in entries_to_delete:
+                entry_id = entry.get("id")
+                desc = entry.get("description", "")
+                print(f"  Deleting entry: {desc}")
+                clockify.delete_time_entry(entry_id)
+
+        process_events(events, clockify, config["rules"], args)
+        current_day += timedelta(days=1)
+        print(f"[INFO] Finished processing date: {current_day.date()}\n")
 
 if __name__ == "__main__":
     main()

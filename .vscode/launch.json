@@ -11,8 +11,10 @@
             "program": "${file}",
             "console": "integratedTerminal",
             "args": [
-        "--days-back", "0",
-  //      "--simulate"
+        "--start", "2025-06-01",
+        "--end", "2025-06-05",
+//        "--days-back", "0",
+        "--simulate"
         "--purge"
       ]
         }
