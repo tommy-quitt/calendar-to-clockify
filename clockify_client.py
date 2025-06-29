@@ -18,11 +18,32 @@ class ClockifyClient:
         self._user_id = response.json()["id"]
         return self._user_id
 
-    def get_projects(self):
+    def get_projects(self, include_archived=False):
         headers = {"X-Api-Key": self.api_key}
-        response = requests.get(f"{self.base_url}/projects", headers=headers)
-        response.raise_for_status()
-        return response.json()
+        all_projects = []
+        page = 1
+        page_size = 100
+
+        while True:
+            params = {
+                "page": page,
+                "page-size": page_size,
+                "archived": "true" if include_archived else "false"
+            }
+            response = requests.get(
+                f"{self.base_url}/projects",
+                headers=headers,
+                params=params
+            )
+            response.raise_for_status()
+            projects = response.json()
+            all_projects.extend(projects)
+            if len(projects) < page_size:
+                break  # No more pages
+            page += 1
+
+        return all_projects
+
 
     def resolve_project_name(self, project_name):
         if self._project_cache is None:
@@ -107,3 +128,11 @@ class ClockifyClient:
         response = requests.delete(url, headers=headers)
         if response.status_code != 204:
             raise Exception(f"Failed to delete time entry {entry_id}: {response.status_code} {response.text}")
+
+    def list_all_projects(clockify, include_archived=False):
+        projects = clockify.get_projects(include_archived=include_archived)
+        print(f"{'Project Name':40} | {'ID':30} | Archived")
+        print("-" * 90)
+        for project in projects:
+            print(f"{project['name'][:40]:40} | {project['id']} | {project['archived']}")
+
