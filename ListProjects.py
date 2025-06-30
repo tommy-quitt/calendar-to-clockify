@@ -9,11 +9,7 @@ clockify = ClockifyClient(
     workspace_id=os.getenv("CLOCKIFY_WORKSPACE_ID")
 )
 
-def list_all_projects(clockify_client):
-    projects = clockify_client.get_projects()
-    for project in projects:
-        print(f"Project: {project['name']} (ID: {project['id']})")
-
-list_all_projects(clockify)
+# Use the method on ClockifyClient to print all projects
+clockify.list_all_projects()
 # This script lists all projects in the Clockify workspace.
 # It initializes the Clockify client with the API key and workspace ID from environment variables,
