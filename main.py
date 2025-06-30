@@ -21,12 +21,24 @@ def load_config():
     load_dotenv()
     with open("rules.yaml", "r") as f:
         rules = yaml.safe_load(f)
+
+    ignored_emails = set()
+    self_email = None
+
+    if os.path.exists("ignored_attendees.yaml"):
+        with open("ignored_attendees.yaml", "r") as f:
+            data = yaml.safe_load(f)
+            ignored_emails = set(data.get("ignored_emails", []))
+            self_email = data.get("self_email")
+
     return {
         "GOOGLE_CREDENTIALS_FILE": os.getenv("GOOGLE_CREDENTIALS_FILE"),
         "GOOGLE_CALENDAR_ID": os.getenv("GOOGLE_CALENDAR_ID"),
         "CLOCKIFY_API_KEY": os.getenv("CLOCKIFY_API_KEY"),
         "CLOCKIFY_WORKSPACE_ID": os.getenv("CLOCKIFY_WORKSPACE_ID"),
-        "rules": rules
+        "rules": rules,
+        "ignored_emails": ignored_emails,
+        "self_email": self_email
     }
 
 def is_reclaim_task(event):
@@ -56,8 +68,17 @@ def log_error(msg, path="unmatched_events.log"):
     print(msg)
     with open(path, "a") as f:
         f.write(msg + "\n")
+        
+def is_ignored_attendee_only(event, ignored_emails, self_email):
+    attendees = event.get("attendees", [])
+    actual_attendees = [
+        att.get("email", "").lower()
+        for att in attendees
+        if att.get("email", "").lower() != self_email.lower()
+    ]
+    return len(actual_attendees) == 1 and actual_attendees[0] in ignored_emails
 
-def process_events(events, clockify, rules, args):
+def process_events(events, clockify, rules, ignored_emails, self_email, args):
     for event in events:
         summary = event.get("summary", "No title")
         if is_reclaim_task(event):
@@ -68,6 +89,9 @@ def process_events(events, clockify, rules, args):
             continue
         if not has_invitees(event):
             print(f"Skipping event without invitees: {summary}")
+            continue
+        if is_ignored_attendee_only(event, ignored_emails, self_email):
+            print(f"Skipping 1-on-1 meeting with ignored attendee")
             continue
         if not handle_external_organizer(event):
             print(f"Skipping external event without valid participant: {summary}")
@@ -104,6 +128,8 @@ def process_events(events, clockify, rules, args):
             if conflict_found:
                 continue
             clockify.create_time_entry(start, end, summary, project_id, tags=[TAG_CALENDAR_BOT])
+    
+
 
 def main():
     args = parse_args()
@@ -151,7 +177,7 @@ def main():
                     print(f"  Deleting entry: {desc}")
                     clockify.delete_time_entry(entry_id)
 
-        process_events(events, clockify, config["rules"], args)
+        process_events(events, clockify, config["rules"], config["ignored_emails"], config["self_email"], args)
         current_day += timedelta(days=1)
         print(f"[INFO] Finished processing date: {current_day.date()}\n")
 
