@@ -64,6 +64,10 @@ def handle_external_organizer(event):
         return False
     return True
 
+def is_noproject_tagged(event):
+    description = event.get("description", "")
+    return "#noproject" in description.lower()
+
 def log_error(msg, path="unmatched_events.log"):
     print(msg)
     with open(path, "a") as f:
@@ -87,11 +91,14 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
         if is_all_day(event):
             print(f"Skipping all-day event: {summary}")
             continue
+        if is_noproject_tagged(event):
+            print(f"Skipping event due to '#noproject' tag in description: {summary}")
+            continue
         if not has_invitees(event):
             print(f"Skipping event without invitees: {summary}")
             continue
         if is_ignored_attendee_only(event, ignored_emails, self_email):
-            print(f"Skipping 1-on-1 meeting with ignored attendee")
+            print(f"Skipping 1-on-1 meeting with ignored attendee: {summary}")
             continue
         if not handle_external_organizer(event):
             print(f"Skipping external event without valid participant: {summary}")
@@ -178,8 +185,9 @@ def main():
                     clockify.delete_time_entry(entry_id)
 
         process_events(events, clockify, config["rules"], config["ignored_emails"], config["self_email"], args)
-        current_day += timedelta(days=1)
         print(f"[INFO] Finished processing date: {current_day.date()}\n")
+        current_day += timedelta(days=1)
+        
 
 if __name__ == "__main__":
     main()
