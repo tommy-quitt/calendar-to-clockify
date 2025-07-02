@@ -148,6 +148,21 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
             print(f"Skipping external event without valid participant: {summary}")
             continue
 
+        # Only process if organizer or accepted attendee
+        organizer_email = event.get("organizer", {}).get("email", "").lower()
+        if self_email:
+            if organizer_email != self_email.lower():
+                attendees = event.get("attendees", [])
+                found = False
+                for att in attendees:
+                    if att.get("email", "").lower() == self_email.lower():
+                        if att.get("responseStatus") == "accepted":
+                            found = True
+                        break
+                if not found:
+                    print(f"Skipping event not accepted by self: {summary}")
+                    continue
+
         start = event["start"]["dateTime"]
         end = event["end"]["dateTime"]
         project_name = match_project(event, rules)
