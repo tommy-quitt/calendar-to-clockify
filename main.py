@@ -2,10 +2,10 @@ import os
 import yaml
 import argparse
 import sys
-try:
-    import easygui
-except ImportError:
-    easygui = None
+import tkinter as tk
+from tkinter import ttk
+from tkinter import messagebox
+from tkcalendar import DateEntry
 from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
@@ -19,6 +19,8 @@ class ConfigError(Exception):
     pass
 
 def parse_args():
+    import argparse
+    from datetime import datetime, timezone
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", type=str, required=True, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, required=True, help="End date (YYYY-MM-DD)")
@@ -26,44 +28,75 @@ def parse_args():
     parser.add_argument("--purge", action="store_true")
     # Only show dialog if no parameters are provided (other than script name)
     if len(sys.argv) == 1:
-        if easygui is None:
-            print("[ERROR] easygui is not installed. Please install it with 'pip install easygui' or run the script with command-line arguments.")
-            sys.exit(1)
-        # Use easygui to collect parameters
-        msg = "Enter parameters for Calendar to Clockify"
-        title = "Calendar to Clockify Parameters"
-        field_names = ["Start date (YYYY-MM-DD)", "End date (YYYY-MM-DD)"]
-        field_values = ["", ""]
-        field_values = easygui.multenterbox(msg, title, field_names, field_values)
-        if field_values is None:
+        # Tkinter dialog for parameters
+        class ParamDialog:
+            def __init__(self, parent):
+                self.result = None
+                self.top = tk.Toplevel(parent)
+                self.top.title("Calendar to Clockify Parameters")
+                self.top.grab_set()
+                self.top.protocol("WM_DELETE_WINDOW", self.cancel)
+                # Start date
+                ttk.Label(self.top, text="Start date:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
+                self.start_cal = DateEntry(self.top, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
+                self.start_cal.set_date(datetime.now())
+                self.start_cal.grid(row=0, column=1, padx=5, pady=5)
+                # End date
+                ttk.Label(self.top, text="End date:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
+                self.end_cal = DateEntry(self.top, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
+                self.end_cal.set_date(datetime.now())
+                self.end_cal.grid(row=1, column=1, padx=5, pady=5)
+                # Simulate checkbox
+                self.simulate_var = tk.BooleanVar()
+                self.simulate_cb = ttk.Checkbutton(self.top, text="Simulate (preview only)", variable=self.simulate_var)
+                self.simulate_cb.grid(row=2, column=0, columnspan=2, sticky="w", padx=5)
+                # Purge checkbox
+                self.purge_var = tk.BooleanVar()
+                self.purge_cb = ttk.Checkbutton(self.top, text="Purge (delete bot entries)", variable=self.purge_var)
+                self.purge_cb.grid(row=3, column=0, columnspan=2, sticky="w", padx=5)
+                # Buttons
+                btn_frame = ttk.Frame(self.top)
+                btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+                ttk.Button(btn_frame, text="OK", command=self.ok).pack(side="left", padx=5)
+                ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side="left", padx=5)
+                self.top.bind('<Return>', lambda event: self.ok())
+                self.top.bind('<Escape>', lambda event: self.cancel())
+            def ok(self):
+                start = self.start_cal.get_date().strftime("%Y-%m-%d")
+                end = self.end_cal.get_date().strftime("%Y-%m-%d")
+                simulate = self.simulate_var.get()
+                purge = self.purge_var.get()
+                # Validate dates
+                try:
+                    start_date = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                    end_date = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+                except ValueError:
+                    messagebox.showerror("Input Error", "Start and end dates must be in YYYY-MM-DD format.")
+                    return
+                if start_date > end_date:
+                    messagebox.showerror("Input Error", "Start date cannot be after end date.")
+                    return
+                if (end_date - start_date).days > 31:
+                    messagebox.showerror("Input Error", "Date range cannot exceed 31 days.")
+                    return
+                self.result = SimpleNamespace(
+                    start=start,
+                    end=end,
+                    simulate=simulate,
+                    purge=purge
+                )
+                self.top.destroy()
+            def cancel(self):
+                self.result = None
+                self.top.destroy()
+        root = tk.Tk()
+        root.withdraw()
+        dialog = ParamDialog(root)
+        root.wait_window(dialog.top)
+        if dialog.result is None:
             print("[INFO] User cancelled parameter input dialog.")
             sys.exit(0)
-        start, end = field_values
-        # Checkbox for simulate and purge
-        choices = ["Simulate (preview only)", "Purge (delete bot entries)"]
-        selected = easygui.multchoicebox("Select options (if any):", title, choices)
-        simulate = "Simulate (preview only)" in (selected or [])
-        purge = "Purge (delete bot entries)" in (selected or [])
-        # Validate date format and logic
-        try:
-            start_date = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-            end_date = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        except ValueError:
-            easygui.msgbox("Start and end dates must be in YYYY-MM-DD format.", "Input Error")
-            raise ConfigError("[ERROR] Start and end dates must be in YYYY-MM-DD format.")
-        if start_date > end_date:
-            easygui.msgbox("Start date cannot be after end date.", "Input Error")
-            raise ConfigError("[ERROR] Start date cannot be after end date.")
-        if (end_date - start_date).days > 31:
-            easygui.msgbox("Date range cannot exceed 31 days.", "Input Error")
-            raise ConfigError("[ERROR] Date range cannot exceed 31 days.")
-        # Return a SimpleNamespace for attribute access
-        return SimpleNamespace(
-            start=start,
-            end=end,
-            simulate=simulate,
-            purge=purge
-        )
+        return dialog.result
     else:
         args = parser.parse_args()
         # Validate date format and logic

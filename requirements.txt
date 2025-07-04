@@ -10,3 +10,4 @@ python-dotenv
 # If you get errors about missing tkinter, install it via your package manager or python installer
 
 easygui
+tkcalendar
