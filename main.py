@@ -1,6 +1,12 @@
 import os
 import yaml
 import argparse
+import sys
+try:
+    import easygui
+except ImportError:
+    easygui = None
+from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from calendar_client import CalendarClient
@@ -18,18 +24,59 @@ def parse_args():
     parser.add_argument("--end", type=str, required=True, help="End date (YYYY-MM-DD)")
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--purge", action="store_true")
-    args = parser.parse_args()
-    # Validate date format and logic
-    try:
-        start_date = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-        end_date = datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
-    except ValueError:
-        raise ConfigError("[ERROR] Start and end dates must be in YYYY-MM-DD format.")
-    if start_date > end_date:
-        raise ConfigError("[ERROR] Start date cannot be after end date.")
-    if (end_date - start_date).days > 31:
-        raise ConfigError("[ERROR] Date range cannot exceed 31 days.")
-    return args
+    # Only show dialog if no parameters are provided (other than script name)
+    if len(sys.argv) == 1:
+        if easygui is None:
+            print("[ERROR] easygui is not installed. Please install it with 'pip install easygui' or run the script with command-line arguments.")
+            sys.exit(1)
+        # Use easygui to collect parameters
+        msg = "Enter parameters for Calendar to Clockify"
+        title = "Calendar to Clockify Parameters"
+        field_names = ["Start date (YYYY-MM-DD)", "End date (YYYY-MM-DD)"]
+        field_values = ["", ""]
+        field_values = easygui.multenterbox(msg, title, field_names, field_values)
+        if field_values is None:
+            print("[INFO] User cancelled parameter input dialog.")
+            sys.exit(0)
+        start, end = field_values
+        # Checkbox for simulate and purge
+        choices = ["Simulate (preview only)", "Purge (delete bot entries)"]
+        selected = easygui.multchoicebox("Select options (if any):", title, choices)
+        simulate = "Simulate (preview only)" in (selected or [])
+        purge = "Purge (delete bot entries)" in (selected or [])
+        # Validate date format and logic
+        try:
+            start_date = datetime.strptime(start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end_date = datetime.strptime(end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            easygui.msgbox("Start and end dates must be in YYYY-MM-DD format.", "Input Error")
+            raise ConfigError("[ERROR] Start and end dates must be in YYYY-MM-DD format.")
+        if start_date > end_date:
+            easygui.msgbox("Start date cannot be after end date.", "Input Error")
+            raise ConfigError("[ERROR] Start date cannot be after end date.")
+        if (end_date - start_date).days > 31:
+            easygui.msgbox("Date range cannot exceed 31 days.", "Input Error")
+            raise ConfigError("[ERROR] Date range cannot exceed 31 days.")
+        # Return a SimpleNamespace for attribute access
+        return SimpleNamespace(
+            start=start,
+            end=end,
+            simulate=simulate,
+            purge=purge
+        )
+    else:
+        args = parser.parse_args()
+        # Validate date format and logic
+        try:
+            start_date = datetime.strptime(args.start, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+            end_date = datetime.strptime(args.end, "%Y-%m-%d").replace(tzinfo=timezone.utc)
+        except ValueError:
+            raise ConfigError("[ERROR] Start and end dates must be in YYYY-MM-DD format.")
+        if start_date > end_date:
+            raise ConfigError("[ERROR] Start date cannot be after end date.")
+        if (end_date - start_date).days > 31:
+            raise ConfigError("[ERROR] Date range cannot exceed 31 days.")
+        return args
 
 def load_config():
     load_dotenv()

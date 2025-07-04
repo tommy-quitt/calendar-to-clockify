@@ -4,3 +4,9 @@ google-auth-oauthlib
 requests
 PyYAML
 python-dotenv
+
+# For GUI dialog support
+# tkinter is included with Python on most systems, but may need to be installed separately on some minimal Windows setups
+# If you get errors about missing tkinter, install it via your package manager or python installer
+
+easygui
