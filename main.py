@@ -71,12 +71,15 @@ def load_config():
             raise ConfigError(f"[ERROR] Failed to load ignored_attendees.yaml: {e}")
         if not isinstance(data, dict):
             raise ConfigError("[ERROR] ignored_attendees.yaml must be a mapping with 'ignored_emails' and 'self_email'.")
-        ignored_emails = set(data.get("ignored_emails", []))
+        raw_ignored_emails = data.get("ignored_emails", [])
         self_email = data.get("self_email")
-        if not isinstance(ignored_emails, set) or not all(isinstance(e, str) for e in ignored_emails):
+        if not isinstance(raw_ignored_emails, list) or not all(isinstance(e, str) for e in raw_ignored_emails):
             raise ConfigError("[ERROR] 'ignored_emails' in ignored_attendees.yaml must be a list of strings.")
+        ignored_emails = {e.lower() for e in raw_ignored_emails}
         if self_email is not None and not isinstance(self_email, str):
             raise ConfigError("[ERROR] 'self_email' in ignored_attendees.yaml must be a string.")
+        if self_email is not None:
+            self_email = self_email.lower()
 
     # Validate environment variables
     env_vars = [
@@ -135,11 +138,14 @@ def log_error(msg, path="unmatched_events.log"):
         f.write(msg + "\n")
         
 def is_ignored_attendee_only(event, ignored_emails, self_email):
+    if not self_email:
+        return False
+
     attendees = event.get("attendees", [])
     actual_attendees = [
         att.get("email", "").lower()
         for att in attendees
-        if att.get("email", "").lower() != self_email.lower()
+        if att.get("email", "").lower() != self_email
     ]
     return len(actual_attendees) == 1 and actual_attendees[0] in ignored_emails
 
