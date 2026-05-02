@@ -4,18 +4,19 @@
     // For more information, visit: https://go.microsoft.com/fwlink/?linkid=830387
     "version": "0.2.0",
     "configurations": [
+            
         {
             "name": "Python Debugger: Current File with Arguments",
             "type": "debugpy",
             "request": "launch",
-            "program": "${file}",
+            "program": "main.py",
             "console": "integratedTerminal",
             "args": [
-        "--start", "2025-07-01",
-        "--end", "2025-07-01",
+        "--start", "2025-11-11",
+        "--end", "2025-11-11",
 //        "--days-back", "0",
         //"--simulate"
-        "--purge"
+        //"--purge"
       ]
         }
     ]

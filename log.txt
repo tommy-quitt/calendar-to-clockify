@@ -1,0 +1,17 @@
+[33mcommit 21cb00e6d6b7169cd393ac9fff73c760f66738a0[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m)[m
+Author: tommy-quitt <tommy.quitt@gmail.com>
+Date:   Sat May 2 18:59:16 2026 +0300
+
+    more customer
+
+[33mcommit 9adc7ddda2e3ed67e0b9ca51029952a5354dac75[m
+Author: tommy-quitt <tommy.quitt@gmail.com>
+Date:   Sat May 2 18:58:36 2026 +0300
+
+    Tests
+
+[33mcommit f1a74c4259eba1f1b4fbbb607b90f1ef3fc38b9d[m
+Author: tommy-quitt <tommy.quitt@gmail.com>
+Date:   Sat May 2 18:56:44 2026 +0300
+
+    Remarks on main.py

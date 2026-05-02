@@ -2,3 +2,4 @@
 credentials.json
 __pycache__/
 unmatched_events.log
+.vscode/launch.json
