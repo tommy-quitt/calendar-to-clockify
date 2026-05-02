@@ -112,6 +112,18 @@ def has_invitees(event):
     return bool(event.get("attendees", []))
 
 def handle_external_organizer(event):
+    """
+    Handles calendar events organized by external (non-wechange.company) attendees.
+    
+    How it works:
+    - If the organizer's email does NOT end with "wechange.company", this is an external event
+    - In that case, finds the first attendee who also does NOT have a wechange.company email
+    - Sets that attendee's email as the "external_actor_email" in the event dictionary
+    - Returns True if the event should be processed, False if it should be skipped
+    
+    Returns:
+        bool: True if event should be processed, False if it should be skipped
+    """
     organizer_email = event.get("organizer", {}).get("email", "")
     attendees = event.get("attendees", [])
     if not organizer_email.endswith("wechange.company"):
@@ -120,6 +132,7 @@ def handle_external_organizer(event):
             if att.get("email") and not att["email"].endswith("wechange.company")
         ]
         if matching_emails:
+            # We have a bug in the following line - we should set the external_actor_email to the email of the organizer
             event["external_actor_email"] = matching_emails[0]
             return True
         return False
