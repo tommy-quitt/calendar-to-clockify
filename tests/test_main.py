@@ -51,6 +51,27 @@ def test_handle_external_organizer():
     }
     assert handle_external_organizer(event)
 
+def test_handle_external_organizer_skips_resource_calendar():
+    event = {
+        "organizer": {"email": "external@ingenio.com"},
+        "attendees": [
+            {"email": "c_room@resource.calendar.google.com"},
+            {"email": "someone@wechange.company"},
+            {"email": "other@ingenio.com"},
+        ]
+    }
+    assert handle_external_organizer(event)
+    assert event["external_actor_email"] == "other@ingenio.com"
+
+    event = {
+        "organizer": {"email": "external@ingenio.com"},
+        "attendees": [
+            {"email": "c_room@resource.calendar.google.com"},
+            {"email": "someone@wechange.company"},
+        ]
+    }
+    assert not handle_external_organizer(event)
+
 def test_is_noproject_tagged():
     event = {"description": "#noproject something"}
     assert is_noproject_tagged(event)

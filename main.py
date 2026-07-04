@@ -114,13 +114,17 @@ def is_all_day(event):
 def has_invitees(event):
     return bool(event.get("attendees", []))
 
+def is_resource_calendar_email(email):
+    return email.lower().endswith("@resource.calendar.google.com")
+
 def handle_external_organizer(event):
     """
     Handles calendar events organized by external (non-wechange.company) attendees.
     
     How it works:
     - If the organizer's email does NOT end with "wechange.company", this is an external event
-    - In that case, finds the first attendee who also does NOT have a wechange.company email
+    - In that case, finds the first attendee who does NOT have a wechange.company email
+      and is not a Google Calendar room/resource
     - Sets that attendee's email as the "external_actor_email" in the event dictionary
     - Returns True if the event should be processed, False if it should be skipped
     
@@ -132,10 +136,11 @@ def handle_external_organizer(event):
     if not organizer_email.endswith("wechange.company"):
         matching_emails = [
             att.get("email") for att in attendees
-            if att.get("email") and not att["email"].endswith("wechange.company")
+            if att.get("email")
+            and not att["email"].endswith("wechange.company")
+            and not is_resource_calendar_email(att["email"])
         ]
         if matching_emails:
-            # We have a bug in the following line - we should set the external_actor_email to the email of the organizer
             event["external_actor_email"] = matching_emails[0]
             return True
         return False
