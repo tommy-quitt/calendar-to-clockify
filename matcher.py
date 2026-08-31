@@ -13,6 +13,9 @@ def match_project(event, rules):
         return match.group(1).strip()
 
     # Priority 2: Rules based on external actor's email
+    # Limitation: if external_actor_email is set, this returns immediately even
+    # when that domain is not in rules. Other attendees' domains are never
+    # checked, so a meeting can stay unmatched despite a mapped attendee.
     override_email = event.get("external_actor_email")
     if override_email:
         domain = override_email.split('@')[-1]

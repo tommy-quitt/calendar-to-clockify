@@ -2,7 +2,7 @@ import pytest
 from unittest.mock import patch, MagicMock
 from types import SimpleNamespace
 from datetime import datetime
-pfrom ui_dialog import get_parameters_via_dialog
+from ui_dialog import get_parameters_via_dialog
 
 def test_get_parameters_via_dialog_success():
     """Test successful dialog interaction"""

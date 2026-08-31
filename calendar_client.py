@@ -13,6 +13,8 @@ class CalendarClient:
     def get_events_in_range(self, start_iso, end_iso):
         """
         Fetch events between the specified ISO 8601 start and end times.
+        Limitation: this call does not follow nextPageToken. Google Calendar
+        returns a limited page (default 250), so a busy day can omit events.
         """
         events_result = self.service.events().list(
             calendarId=self.calendar_id,

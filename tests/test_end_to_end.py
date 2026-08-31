@@ -111,4 +111,29 @@ def test_dialog_cancellation(monkeypatch):
     # Mock sys.exit to prevent actual exit during testing
     with patch('sys.exit') as mock_exit:
         main.parse_args()
-        mock_exit.assert_called_with(0) 
+        mock_exit.assert_called_with(0)
+
+def test_main_continues_after_day_api_error(monkeypatch):
+    monkeypatch.setattr(main, 'parse_args', lambda: SimpleNamespace(
+        start='2024-01-01',
+        end='2024-01-02',
+        simulate=True,
+        purge=False
+    ))
+    monkeypatch.setattr(main, 'load_config', lambda: {
+        'GOOGLE_CREDENTIALS_FILE': 'fake.json',
+        'GOOGLE_CALENDAR_ID': 'calid',
+        'CLOCKIFY_API_KEY': 'apikey',
+        'CLOCKIFY_WORKSPACE_ID': 'wsid',
+        'rules': {},
+        'ignored_emails': set(),
+        'self_email': 'me@domain.com'
+    })
+    with patch('main.CalendarClient') as MockCal, \
+         patch('main.ClockifyClient') as MockClock:
+        mock_cal = MockCal.return_value
+        mock_cal.get_events_in_range.side_effect = [Exception("calendar down"), []]
+        mock_clock = MockClock.return_value
+        mock_clock.get_tag_map.return_value = {'1': 'calendar-bot'}
+        main.main()
+        assert mock_cal.get_events_in_range.call_count == 2 

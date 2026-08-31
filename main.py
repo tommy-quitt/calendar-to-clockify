@@ -49,6 +49,10 @@ def parse_args():
         return args
 
 def load_config():
+    # Limitation: rules.yaml, ignored_attendees.yaml, .env, credentials, and
+    # unmatched_events.log are resolved relative to the process current working
+    # directory, not this file's location. Running from another folder (Task
+    # Scheduler, PyInstaller, IDE) can miss config or write logs elsewhere.
     load_dotenv()
     # Validate rules.yaml
     if not os.path.exists("rules.yaml"):
@@ -125,8 +129,11 @@ def handle_external_organizer(event):
     - If the organizer's email does NOT end with "wechange.company", this is an external event
     - In that case, finds the first attendee who does NOT have a wechange.company email
       and is not a Google Calendar room/resource
-    - Sets that attendee's email as the "external_actor_email" in the event dictionary
+    - If none remain, falls back to the organizer's email
+    - Sets that email as the "external_actor_email" in the event dictionary
     - Returns True if the event should be processed, False if it should be skipped
+    Limitation: when several external attendees exist, Google Calendar attendee
+    order is arbitrary, so the first non-wechange / non-room address wins.
     
     Returns:
         bool: True if event should be processed, False if it should be skipped
@@ -142,6 +149,9 @@ def handle_external_organizer(event):
         ]
         if matching_emails:
             event["external_actor_email"] = matching_emails[0]
+            return True
+        if organizer_email and not is_resource_calendar_email(organizer_email):
+            event["external_actor_email"] = organizer_email
             return True
         return False
     return True
@@ -170,6 +180,8 @@ def is_ignored_attendee_only(event, ignored_emails, self_email):
 def process_events(events, clockify, rules, ignored_emails, self_email, args):
     for event in events:
         summary = event.get("summary", "No title")
+        # Limitation: cancelled Google Calendar events (status == "cancelled")
+        # are not filtered and may still be logged as time entries.
         if is_reclaim_task(event):
             print(f"Skipping Reclaim task: {summary}")
             continue
@@ -204,37 +216,45 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
                     print(f"Skipping event not accepted by self: {summary}")
                     continue
 
-        start = event["start"]["dateTime"]
-        end = event["end"]["dateTime"]
-        project_name = match_project(event, rules)
-        project_id = clockify.resolve_project_name(project_name) if project_name else None
+        try:
+            start = event["start"]["dateTime"]
+            end = event["end"]["dateTime"]
+            project_name = match_project(event, rules)
+            project_id = clockify.resolve_project_name(project_name) if project_name else None
 
-        if project_name and not project_id:
-            log_error(f"[WARNING] No Clockify project found for name: '{project_name}' — will skip entry.")
-            continue
-
-        if args.simulate:
-            print(f"[SIMULATION] Would log: {summary} from {start} to {end} -> Proj. ID: {project_id}, Project Name: {project_name}")
-        else:
-            print(f"Logging: {summary} from {start} to {end} -> Project: {project_id}")
-            existing_entries = clockify.get_time_entries(start, end)
-            conflict_found = False
-            for entry in existing_entries:
-                entry_start = entry.get("timeInterval", {}).get("start")
-                entry_end = entry.get("timeInterval", {}).get("end")
-                entry_project_id = entry.get("projectId")
-                if entry_start == start and entry_end == end:
-                    if entry_project_id == project_id:
-                        print(f"Skipping duplicate entry for {summary} at {start}")
-                        conflict_found = True
-                        break
-                    else:
-                        log_error(f"[WARNING] Conflicting time entry exists at {start} for a different project!")
-                        conflict_found = True
-                        break
-            if conflict_found:
+            if project_name and not project_id:
+                log_error(f"[WARNING] No Clockify project found for name: '{project_name}' — will skip entry.")
                 continue
-            clockify.create_time_entry(start, end, summary, project_id, tags=[TAG_CALENDAR_BOT])
+
+            if args.simulate:
+                print(f"[SIMULATION] Would log: {summary} from {start} to {end} -> Proj. ID: {project_id}, Project Name: {project_name}")
+            else:
+                print(f"Logging: {summary} from {start} to {end} -> Project: {project_id}")
+                existing_entries = clockify.get_time_entries(start, end)
+                conflict_found = False
+                # Limitation: duplicate/conflict detection compares ISO datetime
+                # strings exactly. Clockify may store the same instant as UTC
+                # (Z) while Google Calendar uses an offset (+03:00), so a true
+                # duplicate can be missed and a second entry created.
+                for entry in existing_entries:
+                    entry_start = entry.get("timeInterval", {}).get("start")
+                    entry_end = entry.get("timeInterval", {}).get("end")
+                    entry_project_id = entry.get("projectId")
+                    if entry_start == start and entry_end == end:
+                        if entry_project_id == project_id:
+                            print(f"Skipping duplicate entry for {summary} at {start}")
+                            conflict_found = True
+                            break
+                        else:
+                            log_error(f"[WARNING] Conflicting time entry exists at {start} for a different project!")
+                            conflict_found = True
+                            break
+                if conflict_found:
+                    continue
+                clockify.create_time_entry(start, end, summary, project_id, tags=[TAG_CALENDAR_BOT])
+        except Exception as e:
+            log_error(f"[ERROR] Failed to process event '{summary}': {e}")
+            continue
     
 
 
@@ -263,7 +283,11 @@ def main():
         print("[ERROR] Date range cannot exceed 31 days.")
         return
 
-    tag_map = clockify.get_tag_map()
+    try:
+        tag_map = clockify.get_tag_map()
+    except Exception as e:
+        print(f"[ERROR] Failed to fetch Clockify tags: {e}")
+        return
     calendar_bot_tag_id = next((tid for tid, name in tag_map.items() if name == TAG_CALENDAR_BOT), None)
 
     if args.purge and calendar_bot_tag_id is None:
@@ -273,23 +297,30 @@ def main():
     current_day = start_date
     while current_day <= end_date:
         print(f"[INFO] Processing date: {current_day.date()}")
+        # Limitation: --start/--end are treated as UTC midnight–23:59:59, not
+        # the user's local calendar day. For UTC+3, events before ~03:00 local
+        # can be missed on that date, and late-evening events can land on the
+        # wrong processing day (logging and purge both use these bounds).
         start_range = current_day.replace(hour=0, minute=0, second=0, microsecond=0)
         end_range = current_day.replace(hour=23, minute=59, second=59, microsecond=0)
-        events = calendar.get_events_in_range(start_range.isoformat(), end_range.isoformat())
+        try:
+            events = calendar.get_events_in_range(start_range.isoformat(), end_range.isoformat())
 
-        if args.purge:
-            print(f"[INFO] Purging entries tagged '{TAG_CALENDAR_BOT}' on {current_day.date()}")
-            entries_to_delete = clockify.get_time_entries(start_range.isoformat(), end_range.isoformat())
-            for entry in entries_to_delete:
-                tag_ids = entry.get("tagIds", [])
-                if calendar_bot_tag_id in tag_ids:
-                    entry_id = entry.get("id")
-                    desc = entry.get("description", "")
-                    print(f"  Deleting entry: {desc}")
-                    clockify.delete_time_entry(entry_id)
+            if args.purge:
+                print(f"[INFO] Purging entries tagged '{TAG_CALENDAR_BOT}' on {current_day.date()}")
+                entries_to_delete = clockify.get_time_entries(start_range.isoformat(), end_range.isoformat())
+                for entry in entries_to_delete:
+                    tag_ids = entry.get("tagIds", [])
+                    if calendar_bot_tag_id in tag_ids:
+                        entry_id = entry.get("id")
+                        desc = entry.get("description", "")
+                        print(f"  Deleting entry: {desc}")
+                        clockify.delete_time_entry(entry_id)
 
-        process_events(events, clockify, config["rules"], config["ignored_emails"], config["self_email"], args)
-        print(f"[INFO] Finished processing date: {current_day.date()}\n")
+            process_events(events, clockify, config["rules"], config["ignored_emails"], config["self_email"], args)
+            print(f"[INFO] Finished processing date: {current_day.date()}\n")
+        except Exception as e:
+            print(f"[ERROR] Failed processing date {current_day.date()}: {e}. Continuing with the next day.")
         current_day += timedelta(days=1)
         
 

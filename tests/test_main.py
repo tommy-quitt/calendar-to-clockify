@@ -1,9 +1,10 @@
 import pytest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 from types import SimpleNamespace
 from main import (
     is_reclaim_task, is_all_day, has_invitees, handle_external_organizer,
-    is_noproject_tagged, is_ignored_attendee_only, parse_args, ConfigError
+    is_noproject_tagged, is_ignored_attendee_only, parse_args, ConfigError,
+    process_events
 )
 
 def test_is_reclaim_task():
@@ -42,7 +43,8 @@ def test_handle_external_organizer():
             {"email": "someone@wechange.company"}
         ]
     }
-    assert not handle_external_organizer(event)
+    assert handle_external_organizer(event)
+    assert event["external_actor_email"] == "external@other.com"
     event = {
         "organizer": {"email": "someone@wechange.company"},
         "attendees": [
@@ -70,7 +72,8 @@ def test_handle_external_organizer_skips_resource_calendar():
             {"email": "someone@wechange.company"},
         ]
     }
-    assert not handle_external_organizer(event)
+    assert handle_external_organizer(event)
+    assert event["external_actor_email"] == "external@ingenio.com"
 
 def test_is_noproject_tagged():
     event = {"description": "#noproject something"}
@@ -156,4 +159,32 @@ def test_parse_args_date_range_too_large(monkeypatch):
     monkeypatch.setattr('sys.argv', ['main.py', '--start', '2024-01-01', '--end', '2024-03-01'])
     
     with pytest.raises(ConfigError, match="Date range cannot exceed 31 days"):
-        parse_args() 
+        parse_args()
+
+def test_process_events_continues_after_api_error():
+    clockify = MagicMock()
+    clockify.resolve_project_name.return_value = "pid"
+    clockify.get_time_entries.side_effect = [Exception("network"), []]
+    args = SimpleNamespace(simulate=False)
+    events = [
+        {
+            "summary": "First",
+            "description": "",
+            "start": {"dateTime": "2024-01-01T10:00:00Z"},
+            "end": {"dateTime": "2024-01-01T11:00:00Z"},
+            "attendees": [{"email": "a@other.com"}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+        {
+            "summary": "Second",
+            "description": "",
+            "start": {"dateTime": "2024-01-01T11:00:00Z"},
+            "end": {"dateTime": "2024-01-01T12:00:00Z"},
+            "attendees": [{"email": "a@other.com"}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+    ]
+    with patch("main.log_error"):
+        process_events(events, clockify, {}, set(), "me@wechange.company", args)
+    clockify.create_time_entry.assert_called_once()
+    assert clockify.create_time_entry.call_args[0][2] == "Second" 
