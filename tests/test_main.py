@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from main import (
     is_reclaim_task, is_all_day, has_invitees, handle_external_organizer,
     is_noproject_tagged, is_ignored_attendee_only, parse_args, ConfigError,
-    process_events
+    process_events, is_long_duration_event
 )
 
 def test_is_reclaim_task():
@@ -18,6 +18,29 @@ def test_is_all_day():
     assert is_all_day(event)
     event = {"start": {"dateTime": "2024-01-01T10:00:00Z"}}
     assert not is_all_day(event)
+
+def test_is_long_duration_event():
+    assert is_long_duration_event({
+        "start": {"dateTime": "2026-07-22T07:30:00+03:00"},
+        "end": {"dateTime": "2026-08-07T08:30:00+03:00"},
+    })
+    assert is_long_duration_event({
+        "start": {"dateTime": "2026-07-23T07:00:00+03:00"},
+        "end": {"dateTime": "2026-07-28T08:00:00+03:00"},
+    })
+    assert not is_long_duration_event({
+        "start": {"dateTime": "2026-08-31T11:00:00+03:00"},
+        "end": {"dateTime": "2026-08-31T11:30:00+03:00"},
+    })
+    assert not is_long_duration_event({
+        "start": {"dateTime": "2026-08-31T10:00:00Z"},
+        "end": {"dateTime": "2026-08-31T18:00:00Z"},
+    })
+    assert is_long_duration_event({
+        "start": {"dateTime": "2026-08-31T10:00:00Z"},
+        "end": {"dateTime": "2026-08-31T22:00:01Z"},
+    })
+    assert not is_long_duration_event({"start": {"date": "2026-07-22"}})
 
 def test_has_invitees():
     event = {"attendees": [ {"email": "a@b.com"} ]}
@@ -187,4 +210,20 @@ def test_process_events_continues_after_api_error():
     with patch("main.log_error"):
         process_events(events, clockify, {}, set(), "me@wechange.company", args)
     clockify.create_time_entry.assert_called_once()
-    assert clockify.create_time_entry.call_args[0][2] == "Second" 
+    assert clockify.create_time_entry.call_args[0][2] == "Second"
+
+def test_process_events_skips_long_duration_event():
+    clockify = MagicMock()
+    args = SimpleNamespace(simulate=False)
+    events = [
+        {
+            "summary": "טומי בחול",
+            "description": "",
+            "start": {"dateTime": "2026-07-22T07:30:00+03:00"},
+            "end": {"dateTime": "2026-08-07T08:30:00+03:00"},
+            "attendees": [{"email": "naama@wechange.company"}, {"email": "me@wechange.company"}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+    ]
+    process_events(events, clockify, {}, set(), "me@wechange.company", args)
+    clockify.create_time_entry.assert_not_called() 

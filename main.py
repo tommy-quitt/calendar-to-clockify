@@ -15,6 +15,7 @@ from matcher import match_project
 from ui_dialog import get_parameters_via_dialog
 
 TAG_CALENDAR_BOT = "calendar-bot"
+MAX_EVENT_DURATION_HOURS = 10
 
 class ConfigError(Exception):
     pass
@@ -115,6 +116,22 @@ def is_reclaim_task(event):
 def is_all_day(event):
     return "date" in event.get("start", {})
 
+def _parse_event_datetime(value):
+    if not value:
+        return None
+    return datetime.fromisoformat(value.replace("Z", "+00:00"))
+
+def is_long_duration_event(event, max_hours=MAX_EVENT_DURATION_HOURS):
+    """True for timed events longer than max_hours (away/OOO-style blocks)."""
+    try:
+        start = _parse_event_datetime(event.get("start", {}).get("dateTime"))
+        end = _parse_event_datetime(event.get("end", {}).get("dateTime"))
+    except ValueError:
+        return False
+    if start is None or end is None:
+        return False
+    return (end - start) > timedelta(hours=max_hours)
+
 def has_invitees(event):
     return bool(event.get("attendees", []))
 
@@ -187,6 +204,9 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
             continue
         if is_all_day(event):
             print(f"Skipping all-day event: {summary}")
+            continue
+        if is_long_duration_event(event):
+            print(f"Skipping long event (>{MAX_EVENT_DURATION_HOURS}h, away/OOO-style): {summary}")
             continue
         if is_noproject_tagged(event):
             print(f"Skipping event due to '#noproject' tag in description: {summary}")
