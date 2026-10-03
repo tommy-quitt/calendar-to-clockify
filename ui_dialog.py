@@ -4,7 +4,24 @@ from tkinter import ttk
 from tkinter import messagebox
 from tkcalendar import DateEntry
 from types import SimpleNamespace
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
+
+def _default_date_range(today=None):
+    """Default start/end dates for the dialog's date pickers.
+
+    Within the first 7 days of the month, default to the entire previous
+    month (so month-end reporting isn't cut off). From day 8 onward,
+    default to the current month so far: the 1st through today.
+    """
+    today = today or datetime.now()
+    first_of_this_month = today.replace(day=1)
+    if today.day <= 7:
+        end = first_of_this_month - timedelta(days=1)
+        start = end.replace(day=1)
+    else:
+        start = first_of_this_month
+        end = today
+    return start, end
 
 def get_parameters_via_dialog():
     class ParamDialog:
@@ -14,15 +31,16 @@ def get_parameters_via_dialog():
             self.top.title("Calendar to Clockify Parameters")
             self.top.grab_set()
             self.top.protocol("WM_DELETE_WINDOW", self.cancel)
+            default_start, default_end = _default_date_range()
             # Start date
             ttk.Label(self.top, text="Start date:").grid(row=0, column=0, padx=5, pady=5, sticky="e")
             self.start_cal = DateEntry(self.top, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
-            self.start_cal.set_date(datetime.now())
+            self.start_cal.set_date(default_start)
             self.start_cal.grid(row=0, column=1, padx=5, pady=5)
             # End date
             ttk.Label(self.top, text="End date:").grid(row=1, column=0, padx=5, pady=5, sticky="e")
             self.end_cal = DateEntry(self.top, width=12, background='darkblue', foreground='white', borderwidth=2, date_pattern='yyyy-mm-dd')
-            self.end_cal.set_date(datetime.now())
+            self.end_cal.set_date(default_end)
             self.end_cal.grid(row=1, column=1, padx=5, pady=5)
             # Simulate checkbox
             self.simulate_var = tk.BooleanVar()

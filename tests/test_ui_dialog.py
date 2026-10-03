@@ -2,7 +2,33 @@ import pytest
 from unittest.mock import patch, MagicMock
 from types import SimpleNamespace
 from datetime import datetime
-from ui_dialog import get_parameters_via_dialog
+from ui_dialog import get_parameters_via_dialog, _default_date_range
+
+def test_default_date_range_first_week_uses_previous_full_month():
+    # On the 1st-7th of the month, default to the ENTIRE previous month.
+    today = datetime(2026, 9, 5)
+    start, end = _default_date_range(today)
+    assert (start.year, start.month, start.day) == (2026, 8, 1)
+    assert (end.year, end.month, end.day) == (2026, 8, 31)
+
+def test_default_date_range_first_week_boundary_day_7():
+    today = datetime(2026, 3, 7)
+    start, end = _default_date_range(today)
+    assert (start.year, start.month, start.day) == (2026, 2, 1)
+    assert (end.year, end.month, end.day) == (2026, 2, 28)
+
+def test_default_date_range_after_first_week_uses_current_month_to_date():
+    # On the 8th+ of the month, default to the 1st of THIS month through today.
+    today = datetime(2026, 9, 17)
+    start, end = _default_date_range(today)
+    assert (start.year, start.month, start.day) == (2026, 9, 1)
+    assert (end.year, end.month, end.day) == (2026, 9, 17)
+
+def test_default_date_range_first_week_across_year_boundary():
+    today = datetime(2026, 1, 3)
+    start, end = _default_date_range(today)
+    assert (start.year, start.month, start.day) == (2025, 12, 1)
+    assert (end.year, end.month, end.day) == (2025, 12, 31)
 
 def test_get_parameters_via_dialog_success():
     """Test successful dialog interaction"""
