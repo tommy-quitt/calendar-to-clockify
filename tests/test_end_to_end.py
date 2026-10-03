@@ -9,7 +9,8 @@ def test_end_to_end(monkeypatch):
         start='2024-01-01',
         end='2024-01-01',
         simulate=True,
-        purge=False
+        purge=False,
+        customer=None
     ))
 
     # Mock config loading
@@ -59,7 +60,8 @@ def test_dialog_functionality(monkeypatch):
         start='2024-01-01',
         end='2024-01-01',
         simulate=True,
-        purge=False
+        purge=False,
+        customer=None
     )
     monkeypatch.setattr('main.get_parameters_via_dialog', lambda: mock_dialog_result)
     
@@ -118,7 +120,8 @@ def test_main_continues_after_day_api_error(monkeypatch):
         start='2024-01-01',
         end='2024-01-02',
         simulate=True,
-        purge=False
+        purge=False,
+        customer=None
     ))
     monkeypatch.setattr(main, 'load_config', lambda: {
         'GOOGLE_CREDENTIALS_FILE': 'fake.json',

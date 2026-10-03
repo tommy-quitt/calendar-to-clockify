@@ -21,13 +21,12 @@ class ConfigError(Exception):
     pass
 
 def parse_args():
-    import argparse
-    from datetime import datetime, timezone
     parser = argparse.ArgumentParser()
     parser.add_argument("--start", type=str, required=True, help="Start date (YYYY-MM-DD)")
     parser.add_argument("--end", type=str, required=True, help="End date (YYYY-MM-DD)")
     parser.add_argument("--simulate", action="store_true")
     parser.add_argument("--purge", action="store_true")
+    parser.add_argument("--customer", type=str, default=None, help="Only process time entries for this customer/project name (matches the project name from rules.yaml)")
     # Only show dialog if no parameters are provided (other than script name)
     if len(sys.argv) == 1:
         args = get_parameters_via_dialog()
@@ -240,6 +239,12 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
             start = event["start"]["dateTime"]
             end = event["end"]["dateTime"]
             project_name = match_project(event, rules)
+
+            customer_filter = getattr(args, "customer", None)
+            if customer_filter and (not project_name or project_name.lower() != customer_filter.lower()):
+                print(f"Skipping event for different customer (wanted '{customer_filter}'): {summary}")
+                continue
+
             project_id = clockify.resolve_project_name(project_name) if project_name else None
 
             if project_name and not project_id:
@@ -314,6 +319,13 @@ def main():
         print(f"[ERROR] Tag '{TAG_CALENDAR_BOT}' not found in Clockify. Cannot safely purge.")
         return
 
+    customer_project_id = None
+    if args.customer:
+        customer_project_id = clockify.resolve_project_name(args.customer)
+        if args.purge and customer_project_id is None:
+            print(f"[ERROR] No Clockify project found for customer '{args.customer}'. Cannot safely purge.")
+            return
+
     current_day = start_date
     while current_day <= end_date:
         print(f"[INFO] Processing date: {current_day.date()}")
@@ -332,6 +344,8 @@ def main():
                 for entry in entries_to_delete:
                     tag_ids = entry.get("tagIds", [])
                     if calendar_bot_tag_id in tag_ids:
+                        if args.customer and entry.get("projectId") != customer_project_id:
+                            continue
                         entry_id = entry.get("id")
                         desc = entry.get("description", "")
                         print(f"  Deleting entry: {desc}")
