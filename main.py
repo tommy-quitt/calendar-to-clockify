@@ -220,7 +220,7 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
             print(f"Skipping event without invitees: {summary}")
             continue
         if is_ignored_attendee_only(event, ignored_emails, self_email):
-            print(f"Skipping 1-on-1 meeting with ignored attendee: {summary}")
+            print(f"Skipping meeting with only ignored attendees: {summary}")
             continue
         if not handle_external_organizer(event):
             print(f"Skipping external event without valid participant: {summary}")
