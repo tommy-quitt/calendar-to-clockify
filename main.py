@@ -192,7 +192,13 @@ def is_ignored_attendee_only(event, ignored_emails, self_email):
         for att in attendees
         if att.get("email", "").lower() != self_email
     ]
-    return len(actual_attendees) == 1 and actual_attendees[0] in ignored_emails
+    # Previously this only matched a strict 1-on-1 (exactly one other
+    # attendee). That missed events with several attendees who are ALL on
+    # the ignore list (e.g. recurring family/kids events with two or three
+    # ignored emails on them), which then fell through with no matching
+    # rule and got logged with no project. Now we skip whenever every other
+    # attendee is ignored, regardless of how many there are.
+    return bool(actual_attendees) and all(a in ignored_emails for a in actual_attendees)
 
 def process_events(events, clockify, rules, ignored_emails, self_email, args):
     for event in events:

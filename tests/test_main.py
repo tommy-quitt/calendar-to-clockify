@@ -116,6 +116,43 @@ def test_is_ignored_attendee_only():
     event = {"attendees": [ {"email": "other@x.com"} ]}
     assert not is_ignored_attendee_only(event, ignored_emails, self_email)
 
+def test_is_ignored_attendee_only_multiple_ignored_attendees():
+    # Reproduces events like "כושר - נבחרת הנוער" with several attendees that
+    # are all on the ignore list: should be skipped, not just when there is
+    # exactly one other attendee.
+    ignored_emails = {"ignore1@x.com", "ignore2@x.com"}
+    self_email = "me@x.com"
+    event = {
+        "attendees": [
+            {"email": "me@x.com"},
+            {"email": "ignore1@x.com"},
+            {"email": "ignore2@x.com"},
+        ]
+    }
+    assert is_ignored_attendee_only(event, ignored_emails, self_email)
+
+def test_is_ignored_attendee_only_mixed_attendees_not_skipped():
+    # If even one other attendee isn't on the ignore list, the event is a
+    # real meeting and must not be skipped.
+    ignored_emails = {"ignore1@x.com"}
+    self_email = "me@x.com"
+    event = {
+        "attendees": [
+            {"email": "me@x.com"},
+            {"email": "ignore1@x.com"},
+            {"email": "other@x.com"},
+        ]
+    }
+    assert not is_ignored_attendee_only(event, ignored_emails, self_email)
+
+def test_is_ignored_attendee_only_no_other_attendees_not_skipped():
+    # Only self on the event: nothing to ignore, so it should not be treated
+    # as an ignored-attendee meeting.
+    ignored_emails = {"ignore1@x.com"}
+    self_email = "me@x.com"
+    event = {"attendees": [{"email": "me@x.com"}]}
+    assert not is_ignored_attendee_only(event, ignored_emails, self_email)
+
 def test_parse_args_with_command_line(monkeypatch):
     """Test parse_args with command-line arguments"""
     # Mock sys.argv to simulate command-line arguments
