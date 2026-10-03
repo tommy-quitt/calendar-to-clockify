@@ -4,7 +4,7 @@ from types import SimpleNamespace
 from main import (
     is_reclaim_task, is_all_day, has_invitees, handle_external_organizer,
     is_noproject_tagged, is_ignored_attendee_only, parse_args, ConfigError,
-    process_events, is_long_duration_event
+    process_events, is_long_duration_event, is_solo_event
 )
 
 def test_is_reclaim_task():
@@ -335,4 +335,55 @@ def test_process_events_no_customer_filter_processes_all():
         },
     ]
     process_events(events, clockify, rules, set(), "me@wechange.company", args)
-    clockify.create_time_entry.assert_called_once() 
+    clockify.create_time_entry.assert_called_once()
+
+def test_is_solo_event_no_attendees_field():
+    assert is_solo_event({}, "me@x.com")
+
+def test_is_solo_event_only_self_attendee():
+    event = {"attendees": [{"email": "me@x.com"}]}
+    assert is_solo_event(event, "me@x.com")
+
+def test_is_solo_event_false_with_other_attendee():
+    event = {"attendees": [{"email": "me@x.com"}, {"email": "other@x.com"}]}
+    assert not is_solo_event(event, "me@x.com")
+
+def test_process_events_skips_solo_event_without_project_hint():
+    # A self-organized event with no other attendees and no explicit #proj
+    # tag is noise (e.g. "נסיעה לאינגיניו" drive-time block) and should be
+    # skipped rather than logged with Project Name: None.
+    clockify = MagicMock()
+    args = SimpleNamespace(simulate=False)
+    events = [
+        {
+            "summary": "נסיעה לאינגיניו",
+            "description": "",
+            "start": {"dateTime": "2024-01-01T08:00:00+03:00"},
+            "end": {"dateTime": "2024-01-01T09:00:00+03:00"},
+            "attendees": [{"email": "me@wechange.company", "self": True}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+    ]
+    process_events(events, clockify, {}, set(), "me@wechange.company", args)
+    clockify.create_time_entry.assert_not_called()
+
+def test_process_events_logs_solo_event_with_explicit_proj_tag():
+    # The same kind of solo event, but explicitly tagged #proj, should
+    # still be logged against that project (occasional billable solo work).
+    clockify = MagicMock()
+    clockify.get_time_entries.return_value = []
+    clockify.resolve_project_name.return_value = "pid-ingenio"
+    args = SimpleNamespace(simulate=False)
+    events = [
+        {
+            "summary": "נסיעה לאינגיניו",
+            "description": "#proj Ingenio",
+            "start": {"dateTime": "2024-01-01T08:00:00+03:00"},
+            "end": {"dateTime": "2024-01-01T09:00:00+03:00"},
+            "attendees": [{"email": "me@wechange.company", "self": True}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+    ]
+    process_events(events, clockify, {}, set(), "me@wechange.company", args)
+    clockify.create_time_entry.assert_called_once()
+    assert clockify.create_time_entry.call_args[0][3] == "pid-ingenio"
