@@ -199,6 +199,21 @@ def is_ignored_attendee_only(event, ignored_emails, self_email):
     # attendee is ignored, regardless of how many there are.
     return bool(actual_attendees) and all(a in ignored_emails for a in actual_attendees)
 
+def is_solo_event(event, self_email):
+    """True if no attendee other than the user themself is on the event.
+
+    Self-organized blocks like a drive-time reminder ("נסיעה לאינגיניו")
+    have no other attendees, so they can't be matched to a project by
+    attendee domain and shouldn't be logged as noise. Callers should still
+    allow an explicit #proj tag in the description (handled by
+    match_project's priority order) to override this for the occasional
+    billable solo task.
+    """
+    attendees = event.get("attendees", [])
+    self_email = (self_email or "").lower()
+    others = [a for a in attendees if a.get("email", "").lower() != self_email]
+    return len(others) == 0
+
 def process_events(events, clockify, rules, ignored_emails, self_email, args):
     for event in events:
         summary = event.get("summary", "No title")
@@ -245,6 +260,10 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
             start = event["start"]["dateTime"]
             end = event["end"]["dateTime"]
             project_name = match_project(event, rules)
+
+            if project_name is None and is_solo_event(event, self_email):
+                print(f"Skipping solo event (no other attendees, no #proj tag): {summary}")
+                continue
 
             customer_filter = getattr(args, "customer", None)
             if customer_filter and (not project_name or project_name.lower() != customer_filter.lower()):
