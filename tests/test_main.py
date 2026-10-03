@@ -226,4 +226,76 @@ def test_process_events_skips_long_duration_event():
         },
     ]
     process_events(events, clockify, {}, set(), "me@wechange.company", args)
-    clockify.create_time_entry.assert_not_called() 
+    clockify.create_time_entry.assert_not_called()
+
+def test_process_events_customer_filter_skips_other_customers():
+    # Only events matching the --customer filter's project name should be
+    # logged; events that resolve to a different project are skipped.
+    clockify = MagicMock()
+    clockify.get_time_entries.return_value = []
+    clockify.resolve_project_name.side_effect = lambda name: {
+        "Ingenio": "pid-ingenio",
+        "8200": "pid-8200",
+    }.get(name)
+    args = SimpleNamespace(simulate=False, customer="Ingenio")
+    rules = {"ingenio.com": "Ingenio", "8200.com": "8200"}
+    events = [
+        {
+            "summary": "Ingenio meeting",
+            "description": "",
+            "start": {"dateTime": "2024-01-01T10:00:00Z"},
+            "end": {"dateTime": "2024-01-01T11:00:00Z"},
+            "attendees": [{"email": "a@ingenio.com"}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+        {
+            "summary": "8200 meeting",
+            "description": "",
+            "start": {"dateTime": "2024-01-01T11:00:00Z"},
+            "end": {"dateTime": "2024-01-01T12:00:00Z"},
+            "attendees": [{"email": "a@8200.com"}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+    ]
+    process_events(events, clockify, rules, set(), "me@wechange.company", args)
+    clockify.create_time_entry.assert_called_once()
+    assert clockify.create_time_entry.call_args[0][2] == "Ingenio meeting"
+
+def test_process_events_customer_filter_skips_unmatched_project():
+    # An event that matches no project rule at all must also be skipped
+    # when a --customer filter is active (no project name to compare).
+    clockify = MagicMock()
+    args = SimpleNamespace(simulate=False, customer="Ingenio")
+    events = [
+        {
+            "summary": "No project meeting",
+            "description": "",
+            "start": {"dateTime": "2024-01-01T10:00:00Z"},
+            "end": {"dateTime": "2024-01-01T11:00:00Z"},
+            "attendees": [{"email": "a@unknown.com"}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+    ]
+    process_events(events, clockify, {}, set(), "me@wechange.company", args)
+    clockify.create_time_entry.assert_not_called()
+
+def test_process_events_no_customer_filter_processes_all():
+    # Without --customer, behavior is unchanged: all matched events are
+    # processed regardless of project.
+    clockify = MagicMock()
+    clockify.get_time_entries.return_value = []
+    clockify.resolve_project_name.return_value = "pid-ingenio"
+    args = SimpleNamespace(simulate=False, customer=None)
+    rules = {"ingenio.com": "Ingenio"}
+    events = [
+        {
+            "summary": "Ingenio meeting",
+            "description": "",
+            "start": {"dateTime": "2024-01-01T10:00:00Z"},
+            "end": {"dateTime": "2024-01-01T11:00:00Z"},
+            "attendees": [{"email": "a@ingenio.com"}],
+            "organizer": {"email": "me@wechange.company"},
+        },
+    ]
+    process_events(events, clockify, rules, set(), "me@wechange.company", args)
+    clockify.create_time_entry.assert_called_once() 

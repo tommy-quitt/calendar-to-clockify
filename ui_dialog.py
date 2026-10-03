@@ -32,9 +32,13 @@ def get_parameters_via_dialog():
             self.purge_var = tk.BooleanVar()
             self.purge_cb = ttk.Checkbutton(self.top, text="Purge (delete bot entries)", variable=self.purge_var)
             self.purge_cb.grid(row=3, column=0, columnspan=2, sticky="w", padx=5)
+            # Customer filter
+            ttk.Label(self.top, text="Customer (optional):").grid(row=4, column=0, padx=5, pady=5, sticky="e")
+            self.customer_entry = ttk.Entry(self.top, width=15)
+            self.customer_entry.grid(row=4, column=1, padx=5, pady=5)
             # Buttons
             btn_frame = ttk.Frame(self.top)
-            btn_frame.grid(row=4, column=0, columnspan=2, pady=10)
+            btn_frame.grid(row=5, column=0, columnspan=2, pady=10)
             ttk.Button(btn_frame, text="OK", command=self.ok).pack(side="left", padx=5)
             ttk.Button(btn_frame, text="Cancel", command=self.cancel).pack(side="left", padx=5)
             self.top.bind('<Return>', lambda event: self.ok())
@@ -57,11 +61,13 @@ def get_parameters_via_dialog():
             if (end_date - start_date).days > 31:
                 messagebox.showerror("Input Error", "Date range cannot exceed 31 days.")
                 return
+            customer = self.customer_entry.get().strip() or None
             self.result = SimpleNamespace(
                 start=start,
                 end=end,
                 simulate=simulate,
-                purge=purge
+                purge=purge,
+                customer=customer
             )
             self.top.destroy()
         def cancel(self):
