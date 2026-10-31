@@ -3,3 +3,5 @@ credentials.json
 __pycache__/
 unmatched_events.log
 .vscode/launch.json
+rules.yaml
+ignored_attendees.yaml
