@@ -1,4 +1,17 @@
+import time
+from datetime import datetime, timedelta
+
 import requests
+
+# The free plan allows 30 requests/hour, so a 429 can mean waiting up to an hour.
+# Waits longer than this abort the run instead of sleeping.
+MAX_RETRY_WAIT_SECONDS = 120
+MAX_RETRIES = 5
+MIN_REQUEST_INTERVAL = 0.1  # stay well under Clockify's rate limit
+
+class RateLimitError(Exception):
+    """Clockify's rate limit was hit and the required wait is too long to sleep through."""
+
 
 class ClockifyClient:
     def __init__(self, api_key, workspace_id):
@@ -8,12 +21,41 @@ class ClockifyClient:
         self._project_cache = None
         self._tag_cache = None
         self._user_id = None
+        self._last_request_time = 0.0
+
+    def _request(self, method, url, **kwargs):
+        """Send a request, pacing calls and retrying on 429 (honouring Retry-After)."""
+        for attempt in range(MAX_RETRIES + 1):
+            wait = MIN_REQUEST_INTERVAL - (time.monotonic() - self._last_request_time)
+            if wait > 0:
+                time.sleep(wait)
+            response = getattr(requests, method)(url, **kwargs)
+            self._last_request_time = time.monotonic()
+            if response.status_code != 429 or attempt == MAX_RETRIES:
+                return response
+            # Clockify's hourly limit sends no Retry-After; retrying blindly only
+            # burns more of the quota, so stop instead.
+            try:
+                delay = float(response.headers.get("Retry-After"))
+            except (TypeError, ValueError):
+                raise RateLimitError(
+                    "Clockify rate limit reached. Free plans allow 30 requests per hour; "
+                    "wait up to an hour before running again."
+                )
+            if delay > MAX_RETRY_WAIT_SECONDS:
+                resume = datetime.now() + timedelta(seconds=delay)
+                raise RateLimitError(
+                    f"Clockify rate limit reached; try again after {resume:%H:%M} "
+                    f"(about {delay / 60:.0f} min). Free plans allow 30 requests per hour."
+                )
+            print(f"Clockify rate limit hit; retrying in {delay:.0f}s...")
+            time.sleep(delay)
 
     def get_user_id(self):
         if self._user_id:
             return self._user_id
         headers = {"X-Api-Key": self.api_key}
-        response = requests.get("https://api.clockify.me/api/v1/user", headers=headers)
+        response = self._request("get", "https://api.clockify.me/api/v1/user", headers=headers)
         response.raise_for_status()
         self._user_id = response.json()["id"]
         return self._user_id
@@ -30,7 +72,8 @@ class ClockifyClient:
                 "page-size": page_size,
                 "archived": "true" if include_archived else "false"
             }
-            response = requests.get(
+            response = self._request(
+                "get",
                 f"{self.base_url}/projects",
                 headers=headers,
                 params=params
@@ -55,13 +98,7 @@ class ClockifyClient:
         return None
 
     def ensure_tag(self, tag_name="calendar-bot"):
-        if self._tag_cache is None:
-            headers = {"X-Api-Key": self.api_key}
-            response = requests.get(f"{self.base_url}/tags", headers=headers)
-            response.raise_for_status()
-            self._tag_cache = response.json()
-
-        for tag in self._tag_cache:
+        for tag in self._load_tags():
             if tag["name"] == tag_name:
                 return tag["id"]
 
@@ -71,18 +108,22 @@ class ClockifyClient:
             "Content-Type": "application/json"
         }
         tag_data = {"name": tag_name}
-        response = requests.post(f"{self.base_url}/tags", headers=headers, json=tag_data)
+        response = self._request("post", f"{self.base_url}/tags", headers=headers, json=tag_data)
         response.raise_for_status()
         new_tag = response.json()
         self._tag_cache.append(new_tag)
         return new_tag["id"]
 
+    def _load_tags(self):
+        if self._tag_cache is None:
+            headers = {"X-Api-Key": self.api_key}
+            response = self._request("get", f"{self.base_url}/tags", headers=headers)
+            response.raise_for_status()
+            self._tag_cache = response.json()
+        return self._tag_cache
+
     def get_tag_map(self):
-        headers = {"X-Api-Key": self.api_key}
-        response = requests.get(f"{self.base_url}/tags", headers=headers)
-        response.raise_for_status()
-        tags = response.json()
-        return {tag["id"]: tag["name"] for tag in tags}
+        return {tag["id"]: tag["name"] for tag in self._load_tags()}
 
     def get_time_entries(self, start, end):
         """
@@ -95,7 +136,7 @@ class ClockifyClient:
             "end": end
         }
         url = f"{self.base_url}/user/{user_id}/time-entries"
-        response = requests.get(url, headers=headers, params=params)
+        response = self._request("get", url, headers=headers, params=params)
         response.raise_for_status()
         return response.json()
 
@@ -118,14 +159,14 @@ class ClockifyClient:
         if project_id:
             payload["projectId"] = project_id
 
-        response = requests.post(f"{self.base_url}/time-entries", headers=headers, json=payload)
+        response = self._request("post", f"{self.base_url}/time-entries", headers=headers, json=payload)
         response.raise_for_status()
         return response.json()
 
     def delete_time_entry(self, entry_id):
         headers = {"X-Api-Key": self.api_key}
         url = f"{self.base_url}/time-entries/{entry_id}"
-        response = requests.delete(url, headers=headers)
+        response = self._request("delete", url, headers=headers)
         if response.status_code != 204:
             raise Exception(f"Failed to delete time entry {entry_id}: {response.status_code} {response.text}")
 

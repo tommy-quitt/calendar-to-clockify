@@ -387,3 +387,23 @@ def test_process_events_logs_solo_event_with_explicit_proj_tag():
     process_events(events, clockify, {}, set(), "me@wechange.company", args)
     clockify.create_time_entry.assert_called_once()
     assert clockify.create_time_entry.call_args[0][3] == "pid-ingenio"
+
+def test_process_events_fetches_existing_entries_once():
+    clockify = MagicMock()
+    clockify.resolve_project_name.return_value = "pid"
+    clockify.get_time_entries.return_value = []
+    args = SimpleNamespace(simulate=False)
+    events = [
+        {
+            "summary": name,
+            "description": "",
+            "start": {"dateTime": f"2024-01-01T{h}:00:00Z"},
+            "end": {"dateTime": f"2024-01-01T{h + 1}:00:00Z"},
+            "attendees": [{"email": "a@other.com"}],
+            "organizer": {"email": "me@wechange.company"},
+        }
+        for name, h in (("First", 10), ("Second", 12))
+    ]
+    process_events(events, clockify, {}, set(), "me@wechange.company", args)
+    clockify.get_time_entries.assert_called_once_with("2024-01-01T10:00:00Z", "2024-01-01T13:00:00Z")
+    assert clockify.create_time_entry.call_count == 2

@@ -1,6 +1,6 @@
 import pytest
 from unittest.mock import patch, MagicMock
-from clockify_client import ClockifyClient
+from clockify_client import ClockifyClient, RateLimitError
 
 @patch('clockify_client.requests.get')
 def test_get_projects(mock_get):
@@ -37,3 +37,49 @@ def test_create_time_entry(mock_get, mock_post):
     client = ClockifyClient('api', 'ws')
     result = client.create_time_entry('start', 'end', 'desc', 'projid')
     assert result["id"] == "entryid" 
+
+def _resp(status, headers=None):
+    r = MagicMock()
+    r.status_code = status
+    r.headers = headers or {}
+    return r
+
+
+@patch('clockify_client.time.sleep')
+@patch('clockify_client.requests.get')
+def test_retries_short_rate_limit(mock_get, mock_sleep):
+    mock_get.side_effect = [_resp(429, {"Retry-After": "3"}), _resp(200)]
+    client = ClockifyClient('key', 'ws')
+    assert client._request("get", "url").status_code == 200
+    assert mock_get.call_count == 2
+    mock_sleep.assert_any_call(3.0)
+
+
+@patch('clockify_client.time.sleep')
+@patch('clockify_client.requests.get')
+def test_long_rate_limit_raises_instead_of_sleeping(mock_get, mock_sleep):
+    mock_get.return_value = _resp(429, {"Retry-After": "3000"})
+    client = ClockifyClient('key', 'ws')
+    with pytest.raises(RateLimitError, match="try again after"):
+        client._request("get", "url")
+    assert mock_get.call_count == 1
+
+
+@patch('clockify_client.requests.get')
+def test_tags_fetched_once_for_map_and_ensure(mock_get):
+    mock_get.return_value.json.return_value = [{"id": "t1", "name": "calendar-bot"}]
+    client = ClockifyClient('key', 'ws')
+    assert client.get_tag_map() == {"t1": "calendar-bot"}
+    assert client.ensure_tag() == "t1"
+    assert mock_get.call_count == 1
+
+
+@patch('clockify_client.time.sleep')
+@patch('clockify_client.requests.get')
+def test_rate_limit_without_retry_after_stops_immediately(mock_get, mock_sleep):
+    mock_get.return_value = _resp(429)
+    client = ClockifyClient('key', 'ws')
+    with pytest.raises(RateLimitError):
+        client._request("get", "url")
+    assert mock_get.call_count == 1
+    mock_sleep.assert_not_called()

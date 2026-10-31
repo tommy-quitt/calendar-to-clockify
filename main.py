@@ -10,7 +10,7 @@ from types import SimpleNamespace
 from datetime import datetime, timedelta, timezone
 from dotenv import load_dotenv
 from calendar_client import CalendarClient
-from clockify_client import ClockifyClient
+from clockify_client import ClockifyClient, RateLimitError
 from matcher import match_project
 from ui_dialog import get_parameters_via_dialog
 
@@ -214,7 +214,19 @@ def is_solo_event(event, self_email):
     others = [a for a in attendees if a.get("email", "").lower() != self_email]
     return len(others) == 0
 
+def _entry_lookup_range(events):
+    """Smallest (start, end) pair of the original strings covering every timed event."""
+    def parsed(value):
+        return datetime.fromisoformat(value.replace("Z", "+00:00"))
+    starts = [e["start"]["dateTime"] for e in events if "dateTime" in e.get("start", {})]
+    ends = [e["end"]["dateTime"] for e in events if "dateTime" in e.get("end", {})]
+    return min(starts, key=parsed), max(ends, key=parsed)
+
 def process_events(events, clockify, rules, ignored_emails, self_email, args):
+    # Clockify's free plan allows only 30 requests/hour, so existing entries are
+    # fetched once for all events instead of once per event. A failed fetch is
+    # not cached, so the next event retries it.
+    existing_entries = None
     for event in events:
         summary = event.get("summary", "No title")
         # Limitation: cancelled Google Calendar events (status == "cancelled")
@@ -280,7 +292,8 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
                 print(f"[SIMULATION] Would log: {summary} from {start} to {end} -> Proj. ID: {project_id}, Project Name: {project_name}")
             else:
                 print(f"Logging: {summary} from {start} to {end} -> Project: {project_id}")
-                existing_entries = clockify.get_time_entries(start, end)
+                if existing_entries is None:
+                    existing_entries = clockify.get_time_entries(*_entry_lookup_range(events))
                 conflict_found = False
                 # Limitation: duplicate/conflict detection compares ISO datetime
                 # strings exactly. Clockify may store the same instant as UTC
@@ -302,6 +315,9 @@ def process_events(events, clockify, rules, ignored_emails, self_email, args):
                 if conflict_found:
                     continue
                 clockify.create_time_entry(start, end, summary, project_id, tags=[TAG_CALENDAR_BOT])
+                existing_entries.append({"timeInterval": {"start": start, "end": end}, "projectId": project_id})
+        except RateLimitError:
+            raise
         except Exception as e:
             log_error(f"[ERROR] Failed to process event '{summary}': {e}")
             continue
@@ -335,6 +351,9 @@ def main():
 
     try:
         tag_map = clockify.get_tag_map()
+    except RateLimitError as e:
+        print(f"[ERROR] {e}")
+        return
     except Exception as e:
         print(f"[ERROR] Failed to fetch Clockify tags: {e}")
         return
@@ -378,6 +397,9 @@ def main():
 
             process_events(events, clockify, config["rules"], config["ignored_emails"], config["self_email"], args)
             print(f"[INFO] Finished processing date: {current_day.date()}\n")
+        except RateLimitError as e:
+            print(f"[ERROR] {e}")
+            return
         except Exception as e:
             print(f"[ERROR] Failed processing date {current_day.date()}: {e}. Continuing with the next day.")
         current_day += timedelta(days=1)
